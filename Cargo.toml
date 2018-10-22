@@ -1,0 +1,18 @@
+[package]
+name = "stm32f4-smoltcp"
+version = "0.1.0"
+authors = ["Adam Greig <adam@adamgreig.com>"]
+edition = "2018"
+
+[dependencies]
+cortex-m = "0.5.7"
+
+[dependencies.smoltcp]
+git = "https://github.com/m-labs/smoltcp"
+rev = "ef014b118b19d2c4e9218be6ab52ffe4c2aecff3"
+default-features = false
+features = ["proto-ipv4"]
+
+[dependencies.stm32f4]
+version = "0.3.2"
+features = ["stm32f407"]
