@@ -5,13 +5,12 @@ authors = ["Adam Greig <adam@adamgreig.com>"]
 edition = "2018"
 
 [dependencies]
-cortex-m = "0.5.7"
+cortex-m = "0.5.8"
 
 [dependencies.smoltcp]
 version = "0.5.0"
 default-features = false
 features = ["proto-ipv4"]
 
-[dependencies.stm32f4]
-version = "0.3.2"
-features = ["stm32f407"]
+[dependencies.stm32f4xx-hal]
+version = "0.2.3"
