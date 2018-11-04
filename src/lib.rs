@@ -289,6 +289,18 @@ impl EthernetDevice {
         }
     }
 
+    /// Enable receive interrupt
+    pub fn enable_rx_interrupt(&mut self) {
+        self.eth_dma
+            .dmaier
+            .modify(|_, w| w.nise().set_bit().rie().set_bit());
+    }
+
+    /// Disable receive interrupt
+    pub fn disable_rx_interrupt(&mut self) {
+        self.eth_dma.dmaier.modify(|_, w| w.rie().clear_bit());
+    }
+
     /// Sets up the device peripherals.
     fn init_peripherals(&mut self, mac: EthernetAddress) {
         cortex_m::interrupt::free(|_| {
