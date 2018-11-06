@@ -268,7 +268,7 @@ impl EthernetDevice {
     }
 
     pub fn link_established(&mut self) -> bool {
-        return self.phy_poll_link();
+        self.phy_poll_link()
     }
 
     pub fn block_until_link(&mut self) {
@@ -318,15 +318,15 @@ impl EthernetDevice {
         let mac = mac.as_bytes();
         self.eth_mac.maca0lr.write(|w| {
             w.maca0l().bits(
-                (mac[0] as u32) << 0
-                    | (mac[1] as u32) << 8
-                    | (mac[2] as u32) << 16
-                    | (mac[3] as u32) << 24,
+                u32::from(mac[0])
+                    | u32::from(mac[1]) << 8
+                    | u32::from(mac[2]) << 16
+                    | u32::from(mac[3]) << 24,
             )
         });
         self.eth_mac
             .maca0hr
-            .write(|w| w.maca0h().bits((mac[4] as u16) << 0 | (mac[5] as u16) << 8));
+            .write(|w| w.maca0h().bits(u16::from(mac[4]) | u16::from(mac[5]) << 8));
 
         // Enable RX and TX. We'll set link speed and duplex at link-up.
         self.eth_mac
