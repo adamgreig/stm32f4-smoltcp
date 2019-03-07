@@ -13,4 +13,24 @@ default-features = false
 features = ["proto-ipv4"]
 
 [dependencies.stm32f4xx-hal]
-version = "0.2.3"
+version = "0.3.0"
+
+[features]
+rt = ["stm32f4xx-hal/rt"]
+stm32f401 = ["stm32f4xx-hal/stm32f401"]
+stm32f405 = ["stm32f4xx-hal/stm32f405"]
+stm32f407 = ["stm32f4xx-hal/stm32f407"]
+stm32f410 = ["stm32f4xx-hal/stm32f410"]
+stm32f411 = ["stm32f4xx-hal/stm32f411"]
+stm32f412 = ["stm32f4xx-hal/stm32f412"]
+stm32f413 = ["stm32f4xx-hal/stm32f413"]
+stm32f415 = ["stm32f4xx-hal/stm32f405"]
+stm32f417 = ["stm32f4xx-hal/stm32f407"]
+stm32f423 = ["stm32f4xx-hal/stm32f413"]
+stm32f427 = ["stm32f4xx-hal/stm32f427"]
+stm32f429 = ["stm32f4xx-hal/stm32f429"]
+stm32f437 = ["stm32f4xx-hal/stm32f427"]
+stm32f439 = ["stm32f4xx-hal/stm32f429"]
+stm32f446 = ["stm32f4xx-hal/stm32f446"]
+stm32f469 = ["stm32f4xx-hal/stm32f469"]
+stm32f479 = ["stm32f4xx-hal/stm32f469"]
