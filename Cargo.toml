@@ -13,4 +13,4 @@ default-features = false
 features = ["proto-ipv4"]
 
 [dependencies.stm32f4xx-hal]
-version = "0.3.0"
+path = "../stm32f4xx-hal"

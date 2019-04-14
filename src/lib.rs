@@ -1,7 +1,7 @@
 #![no_std]
 
 pub extern crate stm32f4xx_hal as hal;
-use self::hal::stm32::{ETHERNET_DMA, ETHERNET_MAC, RCC};
+use self::hal::stm32::{ETHERNET_DMA, ETHERNET_MAC, ETHERNET_PTP, RCC};
 
 use smoltcp::{
     self,
@@ -28,6 +28,10 @@ pub struct TDes {
     tdes1: u32,
     tdes2: u32,
     tdes3: u32,
+    tdes4: u32,
+    tdes5: u32,
+    tdes6: u32,
+    tdes7: u32,
 }
 
 impl TDes {
@@ -37,6 +41,10 @@ impl TDes {
             tdes1: 0,
             tdes2: 0,
             tdes3: 0,
+            tdes4: 0,
+            tdes5: 0,
+            tdes6: 0,
+            tdes7: 0,
         }
     }
 
@@ -55,7 +63,7 @@ impl TDes {
         self.tdes0 |= 1 << 21;
     }
 
-    /// Return true if the RDes is not currently owned by the DMA
+    /// Return true if the TDes is not currently owned by the DMA
     pub fn available(&self) -> bool {
         self.tdes0 & (1 << 31) == 0
     }
@@ -73,6 +81,53 @@ impl TDes {
     /// Access the buffer pointed to by this descriptor
     pub unsafe fn buf_as_slice_mut(&mut self) -> &mut [u8] {
         core::slice::from_raw_parts_mut(self.tdes2 as *mut _, self.tdes1 as usize & 0x1FFF)
+    }
+
+    pub unsafe fn buf_as_slice(&self) -> &[u8] {
+        core::slice::from_raw_parts(self.tdes2 as *mut u8, self.tdes1 as usize & 0x1FFF)
+    }
+
+    /// Enable timestamping this outgoing packet
+    pub unsafe fn set_timestamping(&mut self) {
+        self.tdes0 |= 1 << 25;
+    }
+
+    /// Returns the timestamp associated with this transmitted packet if available
+    pub unsafe fn get_timestamp(&self) -> Option<u64> {
+        match self.available() && (self.tdes0 & (1 << 17) != 0) {
+            true => Some(((self.tdes7 as u64) << 32) | (self.tdes6 as u64)),
+            false => None,
+        }
+    }
+
+    /// Enable interrupt on transmission completion
+    pub unsafe fn set_interrupt(&mut self) {
+        self.tdes0 |= 1 << 30;
+    }
+
+    /// Returns if this packet is set to interrupt on completion
+    pub unsafe fn get_interrupt(&self) -> bool {
+        self.available() && self.tdes0 & (1 << 30) != 0
+    }
+
+    /// Check if the buffer contains a PTP-over-UDP event packet
+    ///
+    /// Specifically checks for IPv4 ethertype, UDP protocol, and UDP destination port 319
+    pub unsafe fn is_ptp_event(&self) -> bool {
+        let buf = self.buf_as_slice();
+        buf[12] == 0x08 && buf[13] == 0x00 && buf[23] == 0x11 && buf[36] == 0x01 && buf[37] == 0x3f
+    }
+
+    /// Check if the buffer contains a PTP-over-UDP SYNC packet
+    pub unsafe fn is_ptp_sync(&self) -> bool {
+        let buf = self.buf_as_slice();
+        self.is_ptp_event() && buf[42] == 0x00
+    }
+
+    /// Check if the buffer contains a PTP-over-UDP DELAY_REQ packet
+    pub unsafe fn is_ptp_delay_req(&self) -> bool {
+        let buf = self.buf_as_slice();
+        self.is_ptp_event() && buf[42] == 0x01
     }
 }
 
@@ -116,6 +171,22 @@ impl<'a> TDesRing<'a> {
             None
         }
     }
+
+    /// Returns the most recently transmitted TDes with interrupt enabled, if any
+    pub fn last_interrupt(&self) -> Option<&TDes> {
+        for off in 1..(self.td.len()+1) {
+            let mut idx: isize = (self.tdidx - off) as isize;
+            if idx < 0 {
+                idx += self.td.len() as isize;
+            }
+            let rv = self.td[idx as usize];
+            match unsafe { rv.get_interrupt() } {
+                true => { return Some(&self.td[idx as usize]) },
+                false => (),
+            }
+        }
+        None
+    }
 }
 
 /// Receive Descriptor representation
@@ -134,6 +205,10 @@ pub struct RDes {
     rdes1: u32,
     rdes2: u32,
     rdes3: u32,
+    rdes4: u32,
+    rdes5: u32,
+    rdes6: u32,
+    rdes7: u32,
 }
 
 impl RDes {
@@ -143,6 +218,10 @@ impl RDes {
             rdes1: 0,
             rdes2: 0,
             rdes3: 0,
+            rdes4: 0,
+            rdes5: 0,
+            rdes6: 0,
+            rdes7: 0,
         }
     }
 
@@ -175,6 +254,27 @@ impl RDes {
     /// Access the buffer pointed to by this descriptor
     pub unsafe fn buf_as_slice(&self) -> &[u8] {
         core::slice::from_raw_parts(self.rdes2 as *const _, (self.rdes0 >> 16) as usize & 0x3FFF)
+    }
+
+    /// Access the buffer pointed to by this descriptor
+    pub unsafe fn buf_as_slice_mut(&mut self) -> &mut [u8] {
+        core::slice::from_raw_parts_mut(self.rdes2 as *mut _, (self.rdes0 >> 16) as usize & 0x3FFF)
+    }
+
+    /// Returns the timestamp associated with this received packet, if available
+    pub unsafe fn get_timestamp(&self) -> Option<u64> {
+        match self.available() && (self.rdes0 & (1 << 7) != 0) {
+            true => Some(((self.rdes7 as u64) << 32) | (self.rdes6 as u64)),
+            false => None,
+        }
+    }
+
+    /// Check if the buffer contains a PTP-over-UDP event packet
+    ///
+    /// Specifically checks for IPv4 ethertype, UDP protocol, and UDP destination port 319
+    pub unsafe fn is_ptp_event(&self) -> bool {
+        let buf = self.buf_as_slice();
+        buf[12] == 0x08 && buf[13] == 0x00 && buf[23] == 0x11 && buf[36] == 0x01 && buf[37] == 0x3f
     }
 }
 
@@ -226,6 +326,7 @@ pub struct EthernetDevice {
     tdring: &'static mut TDesRing<'static>,
     eth_mac: ETHERNET_MAC,
     eth_dma: ETHERNET_DMA,
+    eth_ptp: ETHERNET_PTP,
     phy_addr: u8,
 }
 
@@ -238,6 +339,7 @@ impl EthernetDevice {
     pub fn new(
         eth_mac: ETHERNET_MAC,
         eth_dma: ETHERNET_DMA,
+        eth_ptp: ETHERNET_PTP,
         rdring: &'static mut RDesRing,
         tdring: &'static mut TDesRing,
         phy_addr: u8,
@@ -247,6 +349,7 @@ impl EthernetDevice {
             tdring,
             eth_mac,
             eth_dma,
+            eth_ptp,
             phy_addr,
         }
     }
@@ -301,6 +404,18 @@ impl EthernetDevice {
         self.eth_dma.dmaier.modify(|_, w| w.rie().clear_bit());
     }
 
+    /// Enable transmit interrupt
+    pub fn enable_tx_interrupt(&mut self) {
+        self.eth_dma
+            .dmaier
+            .modify(|_, w| w.nise().set_bit().tie().set_bit());
+    }
+
+    /// Disable transmit interrupt
+    pub fn disable_tx_interrupt(&mut self) {
+        self.eth_dma.dmaier.modify(|_, w| w.tie().clear_bit());
+    }
+
     /// Sets up the device peripherals.
     fn init_peripherals(&mut self, mac: EthernetAddress) {
         cortex_m::interrupt::free(|_| {
@@ -313,6 +428,23 @@ impl EthernetDevice {
 
         self.eth_dma.dmabmr.modify(|_, w| w.sr().reset());
         while self.eth_dma.dmabmr.read().sr().is_reset() {}
+
+        // Enable PTP timestamping
+        self.eth_ptp.ptptscr.write(|w| {
+            w.tse().set_bit()
+             .tsssr().set_bit()
+             .tssarfe().set_bit()
+        });
+
+        // Set sub-second increment to 10ns, assuming 100MHz sysclk
+        self.eth_ptp.ptpssir.write(|w| {
+            unsafe { w.stssi().bits(10) }
+        });
+
+        // Initialise timestamp
+        self.eth_ptp.ptptscr.modify(|_, w| {
+            w.tssti().set_bit()
+        });
 
         // Set MAC address
         let mac = mac.as_bytes();
@@ -344,7 +476,7 @@ impl EthernetDevice {
         // Set DMA bus mode
         self.eth_dma
             .dmabmr
-            .modify(|_, w| w.aab().aligned().pbl().pbl1());
+            .modify(|_, w| w.aab().aligned().pbl().pbl1().edfe().enabled());
 
         // Flush TX FIFO
         self.eth_dma.dmaomr.write(|w| w.ftf().flush());
@@ -468,8 +600,16 @@ impl phy::TxToken for TxToken {
             let tdes = (*self.0).tdring.next().unwrap();
             tdes.set_length(len);
             let result = f(tdes.buf_as_slice_mut());
+
+            // Check if this frame should be timestamped.
+            if tdes.is_ptp_event() {
+                tdes.set_timestamping();
+                tdes.set_interrupt();
+            }
+
             tdes.release();
             (*self.0).resume_tx_dma();
+
             result
         }
     }
@@ -485,6 +625,36 @@ impl phy::RxToken for RxToken {
         // the various RDes methods.
         unsafe {
             let rdes = (*self.0).rdring.next().unwrap();
+            // For PTP events (SYNC/DELAY_REQ), we write the received timestamp into the UDP
+            // data at a known offset and zero the UDP checksum.
+            if rdes.is_ptp_event() {
+                let ts = match rdes.get_timestamp() {
+                    Some(ts) => ts,
+                    None => 0,
+                };
+                let buf = rdes.buf_as_slice_mut();
+                // Fix up UDP checksum for changed data
+                let check = ((buf[14+20+6] as u16) << 8) | (buf[14+20+7] as u16);
+                let mut check = (!check) as u32;
+                check += (((ts >>  0) & 0xFFFF) as u16).to_be() as u32;
+                check += (((ts >> 16) & 0xFFFF) as u16).to_be() as u32;
+                check += (((ts >> 32) & 0xFFFF) as u16).to_be() as u32;
+                check += (((ts >> 48) & 0xFFFF) as u16).to_be() as u32;
+                check = (check >> 16) + (check & 0xFFFF);
+                let check = !(check as u16);
+                let check = if check == 0 { 0xFFFF } else { check };
+                buf[14+20+6] = (check >> 8) as u8;
+                buf[14+20+7] = check as u8;
+                // Write timestamp as little-endian u64
+                buf[14 + 20 + 8 + 4 + 0] = (ts >> 32) as u8;
+                buf[14 + 20 + 8 + 4 + 1] = (ts >> 40) as u8;
+                buf[14 + 20 + 8 + 4 + 2] = (ts >> 48) as u8;
+                buf[14 + 20 + 8 + 4 + 3] = (ts >> 56) as u8;
+                buf[14 + 20 + 8 + 4 + 4] = (ts >>  0) as u8;
+                buf[14 + 20 + 8 + 4 + 5] = (ts >>  8) as u8;
+                buf[14 + 20 + 8 + 4 + 6] = (ts >> 16) as u8;
+                buf[14 + 20 + 8 + 4 + 7] = (ts >> 24) as u8;
+            }
             let result = f(rdes.buf_as_slice());
             rdes.release();
             (*self.0).resume_rx_dma();
