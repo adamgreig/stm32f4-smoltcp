@@ -432,19 +432,28 @@ impl EthernetDevice {
         // Enable PTP timestamping
         self.eth_ptp.ptptscr.write(|w| {
             w.tse().set_bit()
+             .tsfcu().set_bit()
              .tsssr().set_bit()
              .tssarfe().set_bit()
         });
 
-        // Set sub-second increment to 10ns, assuming 100MHz sysclk
+        // Set sub-second increment to 20ns and initial addend to HCLK/(1/20ns) (HCLK=100MHz)
         self.eth_ptp.ptpssir.write(|w| {
-            unsafe { w.stssi().bits(10) }
+            unsafe { w.stssi().bits(20) }
         });
+        self.eth_ptp.ptptsar.write(|w| {
+            unsafe { w.tsa().bits(1<<31) }
+        });
+        self.eth_ptp.ptptscr.modify(|_, w| {
+            w.ttsaru().set_bit()
+        });
+        while self.eth_ptp.ptptscr.read().ttsaru().bit_is_set() {}
 
         // Initialise timestamp
         self.eth_ptp.ptptscr.modify(|_, w| {
             w.tssti().set_bit()
         });
+        while self.eth_ptp.ptptscr.read().tssti().bit_is_set() {}
 
         // Set MAC address
         let mac = mac.as_bytes();
@@ -626,7 +635,7 @@ impl phy::RxToken for RxToken {
         unsafe {
             let rdes = (*self.0).rdring.next().unwrap();
             // For PTP events (SYNC/DELAY_REQ), we write the received timestamp into the UDP
-            // data at a known offset and zero the UDP checksum.
+            // data at a known offset and fix the UDP checksum.
             if rdes.is_ptp_event() {
                 let ts = match rdes.get_timestamp() {
                     Some(ts) => ts,
